@@ -1,0 +1,5 @@
+data/*
+dist/*
+tests/*
+src/shockwavePropagation.*
+src/skockwavePropagation/__pycache__/*
