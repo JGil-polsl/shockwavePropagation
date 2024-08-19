@@ -26,7 +26,7 @@ def initial(mi, war, x):
 
 class Params():
     # global u_ambient, p_ambient, t_ambient, _rho_air
-    dt = 1*10**(-8) # s
+    dt = 1*10**(-9) # s
     dx = 10**(-3) # m
     Time = 10 # s
     L = 1 # m
@@ -170,14 +170,10 @@ def molarMass(n, ids):
         mass distribution along shockwave. [kg]
     '''
     global Sub_Molar_Mass
-    n_sum = np.zeros(len(n))
-    for x in range(len(n)):
+    n_sum = np.zeros(len(n[0,:]))
+    for x in range(len(n[0,:])):
         for i in ids:
-            try:
-                if not i == 'TNT':
-                    n_sum[x] = n_sum[x] + n[x,Substance[i].value]*Sub_Molar_Mass[i]
-            except KeyError:
-                continue
+            n_sum[x] = n_sum[x] + n[Substance[i].value,x]*Sub_Molar_Mass[i]
     return n_sum
     
 ## vector
@@ -195,28 +191,28 @@ def temperature(dn, n, u, T, front_r):
     vector of floats
         new temperature as T + dT. [K]
     '''
-    Qr = - abs(dn[0][Substance['TNT'].value])*Sub_Qr_re['TNT'] 
-         # + abs(dn[0][Substance['CO2'].value])*Sub_Qr_re['CO2'] \
-         # + abs(dn[0][Substance['H2O'].value])*Sub_Qr_re['H2O']             
+    Qr = - abs(dn[Substance['TNT'].value,0])*Sub_Qr_re['TNT'] 
+         # + abs(dn[0,Substance['CO2'].value])*Sub_Qr_re['CO2'] \
+         # + abs(dn[0,Substance['H2O'].value])*Sub_Qr_re['H2O']             
         
-    Cp = abs(n[0][Substance['N2'].value])*Sub_C['N2'] \
-        + abs(n[0][Substance['CO2'].value])*Sub_C['CO2'] \
-        + abs(n[0][Substance['H2O'].value])*Sub_C['H2O'] \
-        + abs(n[0][Substance['TNT'].value])*Sub_C['TNT']
-        # + n[i][Substance['O2'].value]*Sub_C['Cp']['2']
-        # + n[i][Substance['CO'].value]*Sub_C['Cp']['2'] 
+    Cp = abs(n[Substance['N2'].value,0])*Sub_C['N2'] \
+        + abs(n[Substance['CO2'].value,0])*Sub_C['CO2'] \
+        + abs(n[Substance['H2O'].value,0])*Sub_C['H2O'] \
+        + abs(n[Substance['TNT'].value][0])*Sub_C['TNT']
+        # + n[i,Substance['O2'].value]*Sub_C['Cp']['2']
+        # + n[i,Substance['CO'].value]*Sub_C['Cp']['2'] 
     T[0] = T[0] - Params.u_ambient * ( T[0] - Params.t_ambient ) * Params.dt / Params.dx \
           + Qr * 1000 * Params.dt / Cp
     
     for i in range(1, front_r):
-        Qr = - abs(dn[i][Substance['TNT'].value])*Sub_Qr_re['TNT'] \
-             + abs(dn[i][Substance['CO2'].value])*Sub_Qr_re['CO2'] \
-             + abs(dn[i][Substance['H2O'].value])*Sub_Qr_re['H2O']             
+        Qr = - abs(dn[Substance['TNT'].value,i])*Sub_Qr_re['TNT'] \
+             + abs(dn[Substance['CO2'].value,i])*Sub_Qr_re['CO2'] \
+             + abs(dn[Substance['H2O'].value,i])*Sub_Qr_re['H2O']             
             
-        Cp = abs(n[i][Substance['N2'].value])*Sub_C['N2'] \
-           + abs(n[i][Substance['CO2'].value])*Sub_C['CO2'] \
-           + abs(n[i][Substance['H2O'].value])*Sub_C['H2O'] \
-           + abs(n[i][Substance['TNT'].value])*Sub_C['TNT']
+        Cp = abs(n[Substance['N2'].value,i])*Sub_C['N2'] \
+           + abs(n[Substance['CO2'].value,i])*Sub_C['CO2'] \
+           + abs(n[Substance['H2O'].value,i])*Sub_C['H2O'] \
+           + abs(n[Substance['TNT'].value,i])*Sub_C['TNT']
             # + n[i][Substance['O2'].value]*Sub_C['Cp']['2']
             # + n[i][Substance['CO'].value]*Sub_C['Cp']['2'] 
         T[i] = T[i] - u[i-1] * ( T[i] - T[i-1] ) * Params.dt / Params.dx \
@@ -281,4 +277,6 @@ def molarVolume(V, n, front_r):
         molar volume. [m3/mol]
 
     '''
-    return V[0:front_r]/np.sum(n[:,1:5], axis=1)[0:front_r]
+    if any(np.sum(n[1:5,:], axis = 0) == 0):
+        print("wrong number")
+    return V[0:front_r]/np.sum(n[1:5,:], axis=0)[0:front_r]

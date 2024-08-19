@@ -1,8 +1,13 @@
 import numpy as np
 from copy import deepcopy as cp
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('agg')
+import scipy.sparse as sp
 import math
 import os
+import sys
+import tracemalloc
 
 import params as PR
 import Advection as AD
@@ -27,45 +32,63 @@ import RH
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 '''
 
-def plot(state, step, path):
+def save_stats(stats, name):
+    f = open(name, 'w')
+    for i in stats:
+        if i.size / 1024 < 50:
+            continue
+        text = i.traceback[0].filename
+        # text = text.split('\\')
+        # f.write(text[0] + ' ' + text[len(text)-2] + '\\' + text[len(text)-1] + '  ')
+        f.write(text)
+        f.write(": %s memory blocks: %.1f KiB" % (i.count, i.size / 1024))
+        f.write('\n')
+    f.close()
+
+def plot(n, p, u, T, rho, r, V, Vm, step, path):
     fig, ax = plt.subplots(5,1,figsize=(30,50))
     fig.tight_layout(pad=15.0)
     fig.subplots_adjust(top=0.94)
     x = np.array([x for x in range(int(PR.Params.L/PR.Params.dx)+1)])
     x = x * PR.Params.dx
     
-    ax[0].plot(x, state['u'])
+    ax[0].plot(x, u.T)
+    ax[0].axvline(r, ls = 'dashed', color = 'black', alpha = 0.5)
     ax[0].set_title("Velocity distribution", fontsize=40)
     ax[0].set_xlabel("distance [m]", fontsize=30)
     ax[0].tick_params(axis='x', labelsize=20)
     ax[0].set_ylabel("velocity [m/s]", fontsize=30)
     ax[0].tick_params(axis='y', labelsize=20)
     
-    ax[1].plot(x, state['p']*10**(-3))
+    ax[1].plot(x, p.T*10**(-3))
+    ax[1].axvline(r, ls = 'dashed', color = 'black', alpha = 0.5)
     ax[1].set_title("Pressure distribution", fontsize=40)
     ax[1].set_xlabel("distance [m]", fontsize=30)
     ax[1].tick_params(axis='x', labelsize=20)
     ax[1].set_ylabel("pressure [kPa]", fontsize=30)
     ax[1].tick_params(axis='y', labelsize=20)
     
-    ax[2].plot(x, state['rho'])
+    ax[2].plot(x, rho.T)
+    ax[2].axvline(r, ls = 'dashed', color = 'black', alpha = 0.5)
     ax[2].set_title("Density distribution", fontsize=40)
     ax[2].set_xlabel("distance [m]", fontsize=30)
     ax[2].tick_params(axis='x', labelsize=20)
     ax[2].set_ylabel("density [kg/m3]", fontsize=30)
     ax[2].tick_params(axis='y', labelsize=20)
     
-    ax[3].plot(x, state['n'][:,0])
-    ax[3].plot(x, state['n'][:,1])
-    ax[3].plot(x, state['n'][:,2])
-    ax[3].plot(x, state['n'][:,3])
+    ax[3].plot(x, n[[0],:].T)
+    ax[3].plot(x, n[[1],:].T)
+    ax[3].plot(x, n[[2],:].T)
+    ax[3].plot(x, n[[3],:].T)
+    ax[3].axvline(r, ls = 'dashed', color = 'black', alpha = 0.5)
     ax[3].set_title("Molar distribution", fontsize=40)
     ax[3].set_xlabel("distance [m]", fontsize=30)
     ax[3].tick_params(axis='x', labelsize=20)
     ax[3].set_ylabel("molar number [mol]", fontsize=30)
     ax[3].tick_params(axis='y', labelsize=20)
     
-    ax[4].plot(x, state['T'])
+    ax[4].plot(x, T.T)
+    ax[4].axvline(r, ls = 'dashed', color = 'black', alpha = 0.5)
     ax[4].set_title("Temperature distribution", fontsize=40)
     ax[4].set_xlabel("distance [m]", fontsize=30)
     ax[4].tick_params(axis='x', labelsize=20)
@@ -82,96 +105,100 @@ def plot(state, step, path):
         if os.path.exists(path + "Figures/%i.jpg" % step):
             os.remove(path + "Figures/%i.jpg" % step)
         fig.savefig(path + "Figures/%i.jpg" % step)
-        plt.close(fig)          
+        plt.close(fig)      
 
 def init():
-    x = np.array(range(int(PR.Params.L/PR.Params.dx)+1))/(int(1/PR.Params.dx))
-    nx = (PR.Params.m / PR.Sub_Molar_Mass['TNT'])
-    Ox = PR.Params._rho_air * PR.Params.dx**3 * 0.21 / PR.Sub_Molar_Mass['O2']
-    Nx = PR.Params._rho_air * PR.Params.dx**3 * 0.79 / PR.Sub_Molar_Mass['N2']
-    V = np.ones(len(x)) * PR.Params.dx ** 3
-    r = PR.Params.r0
-    n = np.zeros((int(PR.Params.L/PR.Params.dx)+1, 5))
-    n[0:int(r*(1/PR.Params.dx))+1,PR.Substance['TNT'].value] = PR.Params.dx ** 3 * nx/PR.Params._V_init    
-    n[:,PR.Substance['N2'].value] = Nx
-    n[:,PR.Substance['O2'].value] = Ox
-    # Vmx = np.ones(len(x)) * (PR.Params.dx**3 / (PR.Params.dx**3 * PR.Params._rho_air / PR.Sub_Molar_Mass['air']))
-    Vm = PR.molarVolume(V, n, len(x)+1)
-    # Vm = V/n[:, PR.Substance['TNT'].value]
-    # Vm[np.isinf(Vm)] = PR.Params.dx**3 / (PR.Params.dx**3 * PR.Params._rho_air / PR.Sub_Molar_Mass['air'])
-    # V = Vm * n[:,PR.Substance['TNT'].value]
-    # p = PR.initial(PR.Params._p_init, 3*r/5, x) + PR.Params.p_ambient
-    p = np.ones(len(x)) * PR.Params.p_ambient
-    # p = p * Vmx / Vm
-    u = PR.initial(PR.Params._u_D, 3*r/5, x) + PR.Params.u_ambient
-    # T = PR.initial(PR.Params._T_D, 3*r/5, x) + PR.Params.t_ambient
-    T = np.ones(len(x)) * PR.Params.t_ambient
-    # rho = n[:, PR.Substance['TNT'].value] * PR.Sub_Molar_Mass['TNT']/V + PR.Params._rho_air
-    # rho = np.ones(len(x)) * PR.Params._rho_air
-    # rho[np.isnan(rho)] = PR.Params._rho_air
-    rho = np.zeros(len(x))
-    PR.density(PR.molarMass(n, ['H2O', 'O2', 'N2', 'CO2']), V, len(x)+1, rho)
-    # Vm = PR.Params.dx**3/n[:,0]
-    # Vm[np.isinf(Vm)] = 0
-    state = {'n': cp(n), 'p': cp(p), 'u': cp(u), 'T': cp(T), 'rho': cp(rho), 'r': cp(PR.Params.r0), 'V': cp(V), 'Vm': cp(Vm)}
-    return state    
+    # linespace
+    xx = range(int(PR.Params.L/PR.Params.dx)+1)
+    x = np.zeros((1,len(xx)))
+    x[0,:] = np.array([a for a in xx]) * PR.Params.dx
+    
+    u = np.ones((1,len(x[0,:])))
+    u[0,x[0,:] <= PR.Params.r0] = PR.Params._u_D # m/s
+    
+    n = np.zeros((5, len(x[0,:])))
+    n[3,:] = PR.Params.n_o2
+    n[4,:] = PR.Params.n_n2
+    
+    rho = np.ones((1,len(x[0,:]))) * PR.Params._rho_air # kg/m3
+    # rho[0,x[0,:] <= r0] = _rho0
+    n[:,x[0,:] <= PR.Params.r0] = PR.Params.n_tnt * np.array([[0],[7],[5/2],[0],[3/2]])
+    rho = rho_diff(n, rho, PR.Params.dx)
+    Vmt = np.zeros((1,len(x[0,:])))
+    Vmt[0,:] = Vm_calc(n, PR.Params.dx)
+    
+    p = np.ones((1,len(x[0,:]))) * PR.Params._p_ambient # Pa
+    p[0,:] = p_diff(pvm, Vmt, PR.Params.gamma)
+    
+    T = np.zeros((1,len[x[0,:]]))
+    # state = {'n': sp.csc_array(n), 'p': sp.csc_array(p), 'u': sp.csc_array(u), 'T': sp.csc_array(T), 'rho': sp.csc_array(rho), 'r': cp(0), 'V': sp.csc_array(V), 'Vm': sp.csc_array(Vm)}
+    return n, p, u, T, rho, Vmt
 
 
 def mainLoop():
     path = "E:/Simulations/Shockwave/"
-    name = "With O2/"
-    state = init()
+    name = "Test5/"
+    n, p, u, T, rho, r, V, Vm = init()
     step = 0
-    plot(state, step, path + name)
-    l_idx = int(state['r'] * (int(1/PR.Params.dx)))
+    plot(n, p, u, T, rho, r, V, Vm, step, path + name)
+    l_idx = int(r * (int(1/PR.Params.dx)))
     
+    # tracemalloc.start()
     while 1:
+        # s = tracemalloc.take_snapshot()
+        # save_stats(s.statistics('filename', cumulative=True), path+name+'stats_%i.txt' % step)
+        # del s
+        
         if step == int(PR.Params.Time/PR.Params.dt):
             break
         else:
             step = step + 1
         
         # radius
-        f_idx = int(state['r'] * (int(1/PR.Params.dx)))
+        f_idx = int(r * (int(1/PR.Params.dx)))
         print(f_idx)
-        state['r'] = state['r'] + state['u'][f_idx]*PR.Params.dt
-        l_idx = (state['r'] * (int(1/PR.Params.dx)))
+        # r = r + u[f_idx]*PR.Params.dt
+        l_idx = (r * (int(1/PR.Params.dx)))
         
         # advection / substance movement
-        dn, state['n'] = AD.Advection_Simple(state['u'], state['n'], state['rho'], PR.Params.dx, PR.Params.dt, f_idx, A=PR.Params.dx**2)
+        dn, n = AD.a_RK4(n, u, rho, PR.Params.dt, PR.Params.dx, PR.Params.dx**2) # n, u, rho, dt, dx, A
         
+        print(n[0:5,0:4])
+        print()
         # molar volume
-        Vm = cp(state['Vm'])
-        state['Vm'][0:f_idx+1] = PR.molarVolume(state['V'], state['n'], f_idx+1)
-        state['Vm'][np.isnan(state['Vm'])] = PR.Params.dx**3 / (PR.Params.dx**3 * PR.Params._rho_air / PR.Sub_Molar_Mass['air'])
-        state['Vm'][np.isinf(state['Vm'])] = PR.Params.dx**3 / (PR.Params.dx**3 * PR.Params._rho_air / PR.Sub_Molar_Mass['air'])
+        Vm1 = cp(Vm)
+        Vm[0:f_idx+1] = PR.molarVolume(V, n, f_idx+1)
         # state['Vm'] = PR.volume(state['r'], PR.Params.dx,'spherical') / sum(sum(state['n']))
         
         # volume 
         # state['V'] = state['Vm'] * np.sum(state['n'], axis=1)
         
         # density
-        PR.density(PR.molarMass(state['n'], ['TNT','CO2','N2','H2O','O2']), state['V'], f_idx+1, state['rho'])
+        PR.density(PR.molarMass(n, ['TNT','CO2','N2','H2O','O2']), V, f_idx+1, rho)
         
         # temperature
-        PR.temperature(dn, state['n'], state['u'], state['T'], f_idx+1)
+        # PR.temperature(dn, n, u, T, f_idx+1)
+        del dn
         
         # RH condtion                
-        if f_idx < int(l_idx):
-            us, ps, dT = RH.jump(state['r'], state['u'], state['p'], state['rho'], PR.Params.dt, PR.Params.dx, f_idx)
-            print([us, ps, dT])
-            # state['u'][f_idx+1] = us
-            # state['p'][f_idx+1] = ps
+        # if f_idx < int(l_idx):
+            # us, ps, dT = RH.jump(r, u, p, rho, PR.Params.dt, PR.Params.dx, f_idx)
+            # print([us, ps, dT])
+            # state['u',f_idx+1] = us
+            # state['p',f_idx+1] = ps
             # f_idx = int(state['r'] * (int(1/PR.Params.dx)))
 
         # pressure        
-        PR.pressure(Vm, state['Vm'], state['T'], f_idx+1, state['p'], state['n'])
-        state['p'][np.isinf(state['p'])] = PR.Params.p_ambient
-        state['p'][np.isnan(state['p'])] = PR.Params.p_ambient
+        PR.pressure(Vm1, Vm, T, f_idx+1, p, n)
+        del Vm1
+        p[np.isinf(p)] = PR.Params.p_ambient
+        p[np.isnan(p)] = PR.Params.p_ambient
 
         # velocity
-        state['u'] = NS.NS_Euler(state['u'], state['rho'], state['p'], PR.Params.mu, PR.Params.dt, PR.Params.dx, f_idx)
-        plot(state,step,path+name)
+        NS.u_RK4(u, PR.Params.dt, PR.Params.dx, p, rho, PR.Params.mu) # u, dt, dx, p, rho, mu
+        
+        if step % 100 == 0:
+            plot(n, p, u, T, rho, r, V, Vm,step,path+name)
 
 if __name__ == "__main__":
     mainLoop()

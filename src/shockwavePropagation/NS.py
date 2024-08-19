@@ -1,5 +1,6 @@
 import numpy as np
 import copy as cp
+from params import Params
 '''
     Shockwaves propagation simulations basing on Gillespie algorithm.
     Copyright (C) 2022 by Jarosław Gil
@@ -20,7 +21,7 @@ import copy as cp
 u_ambient = 0
 p_ambient = 0
 
-def NS_Euler(u, density, p, mu, dt, dx, front_r, f=9.81):
+def NS_Euler(u, density, p, mu, dt, dx, front_r, step, f=0):
     '''
     Parameters
     ----------
@@ -44,37 +45,66 @@ def NS_Euler(u, density, p, mu, dt, dx, front_r, f=9.81):
     ut: vector of floats
         velocity distribution along shockwave in time t + dt as u + du.
     '''
-    nu = np.zeros(len(u))
-    nu = cp.deepcopy(u)
-    nu[0] = u[0] \
-            - u[0]*(u[0])*dt/dx \
-            + f*dt \
-            - (p[0])/(density[0]) * dt/dx 
-            # + mu*(u[1] - 2*u[0] + u_ambient)*dt/(dx**2)
-    for i in range(1,front_r):
-        nu[i] = u[i] \
-                - u[i]*(u[i])*dt/dx \
-                + u[i-1]*(u[i-1])*dt/dx \
-                + f*dt \
-                - (p[i])/(density[i]) * dt/dx \
-                + (p[i-1])/(density[i-1]) * dt/dx 
-   
-    i = front_r
-    nu[i] = u[i] \
-            + u[i-1]*(u[i-1])*dt/dx \
-            + f*dt \
-            + (p[i-1])/(density[i-1]) * dt/dx 
-                # + mu*(u[i+1] - 2*u[i] + u[i-1])*dt/(dx**2)
-    # u[len(u)-1] = \
-    #         - u[len(du)-1]*(u[len(du)-1]-u[len(du)-2])*dt/dx \
-    #         + f*dt \
-    #         + (p[len(du)-1] - p[len(du)-2])/density[len(du)-1] * dt/dx \
-    #         + mu*(u_ambient - 2*u[len(du)-1] + u[len(du)-2])*dt/(dx**2)
-    return nu
+    ## TODO do poprawy!!! cos zle liczy, za duza predkosc, nie maleje...
+    ut = cp.copy(u)
+    
+    if step > 1:
+        u[0] = Params.u_ambient
+    
+    for x in range(1, front_r-1):
+        u[x] = ut[x] \
+            - ut[x] * (ut[x] - ut[x-1]) * dt / dx\
+            + f \
+            - (1 / density[x]) * (p[x] - p[x-1]) * dt / dx \
+            + mu * (ut[x+1] - 2*ut[x] + ut[x-1]) * dt / dx**2   
+    del ut
 
-def NS_RK4(u, density, p, mu, dt, dx, front_r, f=9.81):
-    nu = np.zeros(len(u))
-    return nu
+
+def u_diff(u, dt, dx, p, rho, mu):
+    du = np.zeros((1,len(u[0,:])))
+    du[0,1:len(u[0,:])-1] = \
+        - 0.5*u[0,1:len(u[0,:])-1] * u[0,1:len(u[0,:])-1] / dx \
+        + 0.5*u[0,0:len(u[0,:])-2] * u[0,0:len(u[0,:])-2] / dx \
+        + 4/3 *  mu * (u[0,2:len(u[0,:])] - 2*u[0,1:len(u[0,:])-1] + u[0,0:len(u[0,:])-2]) / dx**2 #\
+        # - 1/rho[0,1:len(rho[0,:])-1] * p[0,1:len(p[0,:])-1] * dt / dx \
+        # + 1/rho[0,0:len(rho[0,:])-2] * p[0,0:len(p[0,:])-2] * dt / dx#\
+        # - 1/rho[0,1:len(rho[0,:])-1] * (p[0,1:len(p[0,:])-1] - p[0,0:len(p[0,:])-2]) * dt / dx
+    return du
+
+def u_RK4(u, dt, dx, p, rho, mu):
+    du1 = u_diff(u, dt, dx, p, rho, mu) * dt
+    du2 = u_diff(u + du1/2, dt, dx, p, rho, mu) * dt
+    du3 = u_diff(u + du2/2, dt, dx, p, rho, mu) * dt
+    du4 = u_diff(u + du3, dt, dx, p, rho, mu) * dt
+    du = 1/6 * (du1 + 2*du2 + 2* du3 + du4)
+    return du
 
 def NS_diff():
     return 0
+
+'''
+old
+    u[0] = ut[0] \
+        - ut[0] * (ut[0] - Params.u_ambient) * dt / dx \
+         + f \
+        - (1 / density[0]) * (p[0] - p[1]) * dt / dx \
+        + (1 / Params._rho_air) * (Params.p_ambient - p[0]) * dt / dx \
+        + mu * (ut[1] - 2 * ut[0] + u_amb) * dt / dx**2
+    
+    for x in range(1, front_r):
+        u[x] = ut[x] \
+            - ut[x] * (ut[x] - ut[x-1]) * dt / dx \
+            + f \
+            - (1 / density[x]) * (p[x] - p[x+1]) * dt / dx \
+            + (1 / density[x-1]) * (p[x-1] - p[x]) * dt / dx \
+            + mu * (ut[x+1] - 2 * ut[x] + ut[x-1]) * dt / dx**2
+    
+    x = front_r
+    if x > 0:
+        u[x] = ut[x] \
+            - ut[x] * (ut[x] - ut[x-1]) * dt / dx \
+            + f \
+            - (1 / density[x]) * (p[x] - p[x+1]) * dt / dx \
+            + (1 / density[x-1]) * (p[x-1] - p[x]) * dt / dx \
+            + mu * (ut[x+1] - 2 * ut[x] + ut[x-1]) * dt / dx**2
+'''
